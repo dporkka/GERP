@@ -1,114 +1,163 @@
-# 🌐 GERP (Google-Enterprise Resource Planning)
+# Gerp
 
-![Go Version](https://img.shields.io/badge/Go-1.21-00ADD8?style=for-the-badge&logo=go)
-![Cloud Spanner](https://img.shields.io/badge/Google_Cloud-Spanner-4285F4?style=for-the-badge&logo=googlecloud)
-![Temporal](https://img.shields.io/badge/Temporal-Sagas-161616?style=for-the-badge&logo=temporal)
-![GraphQL](https://img.shields.io/badge/GraphQL-BFF-E10098?style=for-the-badge&logo=graphql)
-![MCP](https://img.shields.io/badge/MCP-AI_Ready-FF7C00?style=for-the-badge)
+**Gerp** is a Go-first, permissively licensed enterprise resource planning platform designed to deliver broad ERP capability without making distributed systems infrastructure mandatory.
 
-**GERP** is a FAANG-grade, multi-domain Enterprise Resource Planning (ERP) matrix. GERP demonstrates how to scale massive distributed data systems using absolute Domain-Driven Design (DDD), cross-domain Temporal Sagas, and zero SQL foreign keys.
+The project is converging on a **modular Go monolith + PostgreSQL** core with server-rendered/HTMX-first business UI, explicit domain invariants, transactional audit/outbox primitives, and optional adapters for GraphQL, MCP, durable workflow engines, cloud databases, and rich client-side application surfaces.
 
-This is not just an ERP. It is a self-aware corporate engine exposed natively to AI agents via the Model Context Protocol (MCP).
+> Status: active architecture convergence. The repository contains an earlier Spanner/Temporal distributed prototype alongside the new PostgreSQL-first foundation. Legacy adapters remain during the migration so working domain code can be preserved while transaction boundaries are simplified.
 
-Designed to utilize the Google Workspace API for iam role management, permissions, and identity, then integrating all Gsuite tools & apps natively, creating a seamless ERP management system that completes the Google Workspace experiemce. Everything you need to run a business of any size, infinitely customizable, from a single vendor. Lightweight, lightspeed, Go code with the QuanuX Knowledge Vector enabling AI agents to build your ERP to their AGI standards while you focus on your business.
+## Principles
 
----
+- **Correctness before distribution.** Finance, inventory, sales, purchasing, and settlement use ACID transactions when they live inside Gerp.
+- **Domain rules are storage-independent.** Business invariants live in Go domain packages, not handlers, GraphQL resolvers, Temporal workflows, or database adapters.
+- **PostgreSQL is the default system of record.** Relational integrity is a feature for ERP workloads, not a limitation to remove prematurely.
+- **Multi-tenant by construction.** Tenant identity belongs at application and repository boundaries, with database policies available as defense in depth.
+- **Immutable business facts.** Posted journals and stock movements are append/reversal oriented and auditable.
+- **Integrations are reliable.** Transactional outbox + idempotency are baseline primitives.
+- **Low operational burden.** A normal Gerp installation should not require Kubernetes, Kafka, Temporal, Redis, or a Node.js application server.
+- **Agent-ready, not agent-bypassed.** MCP/AI actions use the same authorization and domain commands as human operators.
+- **Permissive ecosystem.** Prefer MIT/Apache/BSD-style dependencies and small, well-maintained building blocks.
 
-## 🏛️ Core Architectural Pillars
+## Target architecture
 
-### 1. The Golden Thread (Zero SQL Foreign Keys)
-To achieve infinite horizontal scale, GERP completely abandons database-layer foreign keys between domains. A `SalesOrder` in Revenue does not use an SQL `JOIN` to find a `Customer` in Master Data. Instead, GERP employs the **Golden Thread**: strict `uuid.UUID` pointers managed in application space. Each domain owns its Spanner tables exclusively. 
+```text
+Browser
+  |
+  | HTML + HTMX; JSON/API where useful
+  v
+Go transport adapters
+  |
+  v
+Application services
+  |
+  +-----------+-----------+-----------+-----------+
+  |           |           |           |           |
+Finance      CRM        Sales        SCM       Workflow
+  |           |           |           |           |
+  +-----------+-----------+-----------+-----------+
+                          |
+                     Domain ports
+                          |
+                  PostgreSQL unit of work
+                   /        |         \
+                audit     outbox      jobs
+                          |
+                  external adapters
+```
 
-### 2. Distributed Temporal Sagas
-Because domains are isolated, GERP cannot rely on single-database ACID transactions. Instead, it uses **Temporal Workflows** as its nervous system. If an order allocates physical inventory in the SCM domain but fails to lock the ledger in the Finance domain, Temporal automatically executes a mathematical **Compensating Rollback** (`ReverseInventoryActivity`) to guarantee eventual consistency and eliminate phantom locks.
+Ordinary ERP screens should default to Go-rendered HTML + HTMX, with Alpine.js for small ephemeral UI state. Rich maps, planners, visual editors, offline applications, and collaborative canvases can be isolated Svelte/React/Web Component islands without moving authoritative business rules into the browser.
 
-### 3. The GraphQL Backend-For-Frontend (BFF)
-Clients never see the distributed complexity. The Go-based GraphQL Gateway (`cmd/gateway`) receives a unified query and fans out requests across the isolated micro-domains in memory, resolving the Golden Thread UUIDs instantly into beautiful, deeply nested JSON graphs.
+See [`docs/architecture/ADR-001-modular-monolith-postgres.md`](docs/architecture/ADR-001-modular-monolith-postgres.md).
 
-### 4. The MCP Brain Interface
-GERP is designed to be operated by AI. The built-in Model Context Protocol server (`cmd/mcp`) exposes the Spanner audit logs, system status, and Temporal Saga triggers over standard JSON-RPC STDIO. Point Claude Desktop or Cursor at this repository, and the AI can run the company.
+## ERP coverage
 
----
+The repository already contains domain packages covering or prototyping:
 
-## 🏗️ The 8 Tier-1 Domains
+- Finance
+- Human capital management
+- Supply chain
+- Enterprise asset management
+- Legal/compliance
+- Revenue/CRM
+- Learning/compliance training
+- Master data
+- Content/knowledge management (COAMS)
+- IAM
+- Pipeline/workflow
+- MCP/agent interfaces
 
-GERP separates its global state into perfectly isolated execution environments:
-* 💰 **Finance (`internal/finance`):** The immutable double-entry ledger.
-* 👥 **Human Capital (`internal/hcm`):** The employee and payroll engine.
-* 📦 **Supply Chain (`internal/scm`):** Physical inventory and SKU tracking.
-* 🏭 **Enterprise Asset (`internal/eam`):** Infrastructure and warehouse management.
-* ⚖️ **Legal (`internal/legal`):** The append-only SOC2/SOX compliance audit log.
-* 📈 **Revenue (`internal/revenue`):** Top-line sales and customer relationship mapping.
-* 🎓 **Learning (`internal/lms`):** Educational compliance and safety certifications.
-* 🌐 **Master Data (`internal/mdm`):** The Universal Translator connecting localized IDs to a single "Golden Record".
+The implementation roadmap expands and normalizes those domains into a coherent ERP kernel covering:
 
----
+- general ledger, AR/AP, banking, close and reporting
+- CRM and opportunity management
+- quote-to-cash
+- procure-to-pay
+- inventory/WMS
+- manufacturing/MRP
+- projects/services
+- assets/maintenance
+- HCM/payroll integrations
+- workflow/approvals
+- enterprise SSO/SCIM/localization/consolidation
 
-## 📝 The Content Engine (COAMS)
+See [`docs/ULTIMATE_ROADMAP.md`](docs/ULTIMATE_ROADMAP.md).
 
-**COAMS (Content Operating and Management System)** is the centralized, AI-First knowledge engine of the GERP matrix. It serves as the definitive **single point of truth** for all internal and external content delivery.
+## Finance integrity
 
-Traditional headless CMS JSON/AST structures have been discarded. COAMS natively speaks Markdown, making it perfectly optimized for massive AI agent contextual ingestion. 
+The finance package now has storage-independent journal validation. A journal must:
 
-It is an "Ignorant Engine" that chunks raw `.md` files into physically sharded AlloyDB vector embeddings (`pgvector`) while mathematically guaranteeing zero broken internal links via the **Agent-Index** (`doc:uuid`). It integrates autonomously with the GraphQL BFF, regenerating schema definitions dynamically as new content partitions are mapped.
+- contain at least two lines;
+- contain no nil/zero-amount lines;
+- reference explicit line/account IDs;
+- contain no duplicate line IDs;
+- avoid integer overflow;
+- balance exactly to zero before persistence.
 
-COAMS is completely self-bootstrapping and teaches external LLM agents its own architecture. Agents and human operators alike can directly consult the injected [QuanuX Knowledge Vector SKILL.md](internal/coams/docs/SKILL.md) and its dynamically generated Unix-style CLI manual pages to mechanically navigate the content repository.
+The legacy Spanner service calls the same invariant function that future PostgreSQL adapters will call. This is the migration pattern for the rest of the ERP: **extract invariants first, then replace infrastructure behind stable domain contracts**.
 
----
+## PostgreSQL foundation
 
-## 🚀 Getting Started (Local Matrix)
+New PostgreSQL migrations live under [`migrations/postgres`](migrations/postgres):
 
-GERP includes a massive infrastructure control plane designed for local Docker execution.
+- `001_core.sql` — tenants, users, memberships, RBAC, idempotency, audit and transactional outbox
+- `002_finance.sql` — chart of accounts, fiscal periods, immutable journals and ledger lines
 
-**1. Boot the Infrastructure (Spanner, Temporal, Redis)**
+The next implementation milestone is the `pgx` unit-of-work/repository layer, followed by a complete finance vertical slice on PostgreSQL.
+
+## Existing distributed adapters
+
+The original prototype uses:
+
+- Cloud Spanner
+- Temporal
+- GraphQL/gqlgen
+- MCP
+- Google APIs
+
+These are no longer architectural requirements. They remain useful where justified:
+
+- Spanner can remain an optional scale adapter until removed or proven necessary for specific installations.
+- Temporal can remain for truly durable, cross-system workflows.
+- GraphQL can remain a client/API adapter.
+- MCP remains a first-class agent interface over permissioned application services.
+
+## Development
+
+The current module requires the Go version declared in `go.mod`.
+
+```bash
+go test ./...
+go vet ./...
+go build ./...
+```
+
+The repository CI runs formatting, vet, tests, and build checks on pull requests.
+
+### Legacy local matrix
+
+Existing prototype tooling remains available while migration proceeds:
+
 ```bash
 make up
 make init-db
-```
-
-**2. Inject the Genesis State (Seed the Matrix)**
-```bash
 go run ./cmd/seed/main.go
-```
-
-**3. Start the Execution Engines**
-```bash
-# Terminal 1: Boot the Temporal Orchestrator
 make run-worker
-
-# Terminal 2: Boot the GraphQL Gateway
 make run-gateway
 ```
 
-**4. Command the Matrix**
-You can fire cross-domain Sagas using the native CLI Operator:
-```bash
-go build -o gerp ./cmd/gerp
-./gerp orders create
-./gerp audit view 99999999-9999-9999-9999-999999999999
-```
+Do not add new baseline features that require the legacy distributed stack unless an ADR documents why a normal PostgreSQL transaction/job/outbox cannot satisfy the requirement.
 
----
+## Migration sequence
 
-## 🧠 Hooking up your AI (MCP Server)
+1. Extract business invariants from infrastructure-coupled services.
+2. Add tenant-aware PostgreSQL schemas and repository contracts.
+3. Move finance to PostgreSQL with parity/invariant tests.
+4. Move inventory and commercial order flows into the same transactional core.
+5. Add outbox-backed integrations and a PostgreSQL job queue.
+6. Build the server-rendered/HTMX application shell.
+7. Retain Temporal/GraphQL/MCP/cloud adapters where they add measurable value.
+8. Remove Spanner-only and cross-domain-saga assumptions after parity gates pass.
 
-To allow your AI IDE to read GERP's physical state and trigger workflows, add the following to your `.cursor/mcp.json` or Claude Desktop configuration:
+## License
 
-```json
-{
-  "mcpServers": {
-    "gerp-matrix": {
-      "command": "go",
-      "args": ["run", "./cmd/mcp/main.go"],
-      "env": {
-        "GERP_GRAPHQL_ENDPOINT": "http://localhost:8080/query",
-        "GERP_TEMPORAL_HOST": "localhost:7233",
-        "GERP_SPANNER_DB": "projects/gerp-local-dev/instances/gerp-instance/databases/gerp-db"
-      }
-    }
-  }
-}
-```
-
----
-*Built with precision by the Architect-in-the-Loop Swarm.*
+MIT. See [`LICENSE`](LICENSE).

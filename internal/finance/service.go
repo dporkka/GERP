@@ -20,7 +20,9 @@ type financeService struct {
 	client *spanner.Client
 }
 
-// NewService safely instantiates the finance service with the Spanner client.
+// NewService safely instantiates the finance service with the legacy Spanner adapter.
+// The finance-domain invariants are storage-independent; PostgreSQL can replace this
+// adapter without changing the accounting rules.
 func NewService(client *spanner.Client) Service {
 	return &financeService{client: client}
 }
@@ -42,8 +44,7 @@ func (s *financeService) GetAccount(ctx context.Context, id uuid.UUID) (*Account
 	return &acc, nil
 }
 
-// GetLedgerEntry accurately reads an entry and mathematically proves interleaved LineItems 
-// via a consistent read-only transaction snapshot to enforce ACID isolation.
+// GetLedgerEntry reads an entry and its lines through one consistent snapshot.
 func (s *financeService) GetLedgerEntry(ctx context.Context, id uuid.UUID) (*LedgerEntry, []*LineItem, error) {
 	txn := s.client.ReadOnlyTransaction()
 	defer txn.Close()
@@ -61,14 +62,14 @@ func (s *financeService) GetLedgerEntry(ctx context.Context, id uuid.UUID) (*Led
 	}
 
 	stmt := spanner.Statement{
-		SQL: `SELECT LedgerEntryID, LineItemID, AccountID, AmountCents, CustomerID, CreatedAt 
-              FROM LineItems 
+		SQL: `SELECT LedgerEntryID, LineItemID, AccountID, AmountCents, CustomerID, CreatedAt
+              FROM LineItems
               WHERE LedgerEntryID = @id`,
 		Params: map[string]interface{}{
 			"id": id.String(),
 		},
 	}
-	
+
 	iter := txn.Query(ctx, stmt)
 	defer iter.Stop()
 
@@ -91,35 +92,32 @@ func (s *financeService) GetLedgerEntry(ctx context.Context, id uuid.UUID) (*Led
 	return &entry, lines, nil
 }
 
-// InsertLedgerEntry commits a balanced double-entry transaction reliably via Spanner.
+// InsertLedgerEntry validates accounting invariants before any persistence work,
+// then atomically writes the entry through the currently configured Spanner adapter.
 func (s *financeService) InsertLedgerEntry(ctx context.Context, entry *LedgerEntry, lines []*LineItem) error {
-	var mutations []*spanner.Mutation
+	if entry == nil {
+		return fmt.Errorf("ledger entry is required")
+	}
+	if err := ValidateJournal(lines); err != nil {
+		return err
+	}
 
-	// 1. Queue Parent Entry
-	mut, err := spanner.InsertStruct("LedgerEntries", entry)
+	mutations := make([]*spanner.Mutation, 0, len(lines)+1)
+
+	entryMutation, err := spanner.InsertStruct("LedgerEntries", entry)
 	if err != nil {
 		return err
 	}
-	mutations = append(mutations, mut)
+	mutations = append(mutations, entryMutation)
 
-	// 2. Validate double-entry accounting balanced sum
-	var totalCents int64
 	for _, line := range lines {
-		totalCents += line.AmountCents
-		
-		lineMut, err := spanner.InsertStruct("LineItems", line)
+		lineMutation, err := spanner.InsertStruct("LineItems", line)
 		if err != nil {
 			return err
 		}
-		mutations = append(mutations, lineMut)
+		mutations = append(mutations, lineMutation)
 	}
 
-	// Double-entry guarantee
-	if totalCents != 0 {
-		return fmt.Errorf("transaction not balanced (sum = %d cents)", totalCents)
-	}
-
-	// 3. Commit atomically to Spanner Hot Path
 	_, err = s.client.Apply(ctx, mutations)
 	return err
 }

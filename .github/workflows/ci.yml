@@ -44,10 +44,19 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+      - name: Normalize module metadata
+        run: go mod tidy
+      - name: Capture normalized module metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: tidy-module-files
+          path: |
+            go.mod
+            go.sum
+          retention-days: 1
       - name: Verify module metadata
         shell: bash
         run: |
-          go mod tidy
           if ! git diff --exit-code -- go.mod go.sum; then
             echo "go.mod/go.sum are not tidy; run 'go mod tidy' and commit the result."
             exit 1

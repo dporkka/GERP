@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS crm_pipeline_stages (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, id),
+    UNIQUE (tenant_id, pipeline_id, id),
     UNIQUE (tenant_id, pipeline_id, position),
     FOREIGN KEY (tenant_id, pipeline_id)
         REFERENCES crm_pipelines(tenant_id, id) ON DELETE RESTRICT
@@ -120,8 +121,8 @@ CREATE TABLE IF NOT EXISTS crm_deals (
     UNIQUE (tenant_id, id),
     FOREIGN KEY (tenant_id, pipeline_id)
         REFERENCES crm_pipelines(tenant_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (tenant_id, stage_id)
-        REFERENCES crm_pipeline_stages(tenant_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, pipeline_id, stage_id)
+        REFERENCES crm_pipeline_stages(tenant_id, pipeline_id, id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, company_id)
         REFERENCES crm_companies(tenant_id, id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, primary_contact_id)

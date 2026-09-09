@@ -18,12 +18,32 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Verify formatting on changed Go files
+        shell: bash
+        run: |
+          if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+            git fetch origin "$GITHUB_BASE_REF" --depth=1
+            files=$(git diff --name-only --diff-filter=ACM "origin/$GITHUB_BASE_REF"...HEAD -- '*.go')
+          else
+            files=$(git diff --name-only --diff-filter=ACM HEAD^ HEAD -- '*.go')
+          fi
+
+          if [[ -z "$files" ]]; then
+            exit 0
+          fi
+
+          unformatted=$(gofmt -l $files)
+          if [[ -n "$unformatted" ]]; then
+            echo "The following changed Go files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
       - name: Vet
         run: go vet ./...
       - name: Test

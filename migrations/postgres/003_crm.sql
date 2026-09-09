@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS crm_deals (
     name text NOT NULL,
     amount_minor bigint NOT NULL DEFAULT 0 CHECK (amount_minor >= 0),
     currency char(3) NOT NULL,
-    status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','won','lost','archived')),
+    status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','won','lost')),
     expected_close_on date,
     closed_at timestamptz,
     close_reason text,

@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrMissingScope = errors.New("tenant scope is required")
+	ErrMissingScope  = errors.New("tenant scope is required")
 	ErrMissingTenant = errors.New("tenant id is required")
 )
 

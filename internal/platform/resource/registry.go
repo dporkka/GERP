@@ -51,6 +51,7 @@ type Action struct {
 	Permission string
 	Command    string
 	Dangerous  bool
+	Collection bool
 }
 
 type Resource struct {
@@ -88,6 +89,17 @@ func (r Resource) Validate() error {
 			return fmt.Errorf("resource %s: duplicate field %s", r.Name, field.Name)
 		}
 		seen[field.Name] = struct{}{}
+	}
+
+	seenActions := make(map[string]struct{}, len(r.Actions))
+	for _, action := range r.Actions {
+		if action.Name == "" || action.Permission == "" || action.Command == "" {
+			return fmt.Errorf("resource %s: action name, permission and command are required", r.Name)
+		}
+		if _, exists := seenActions[action.Name]; exists {
+			return fmt.Errorf("resource %s: duplicate action %s", r.Name, action.Name)
+		}
+		seenActions[action.Name] = struct{}{}
 	}
 
 	if r.MutationMode == MutationModeCommandsOnly && len(r.Actions) == 0 {

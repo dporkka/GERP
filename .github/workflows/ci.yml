@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -46,14 +47,18 @@ jobs:
           fi
       - name: Normalize module metadata
         run: go mod tidy
-      - name: Capture normalized module metadata
-        uses: actions/upload-artifact@v4
-        with:
-          name: tidy-module-files
-          path: |
-            go.mod
-            go.sum
-          retention-days: 1
+      - name: Commit normalized module metadata
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          if git diff --quiet -- go.mod go.sum; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add go.mod go.sum
+          git commit -m "chore(deps): tidy GOBL module graph"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
       - name: Verify module metadata
         shell: bash
         run: |

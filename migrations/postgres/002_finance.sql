@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     description text NOT NULL DEFAULT '',
     source_type text,
     source_id text,
-    status text NOT NULL DEFAULT 'posted' CHECK (status IN ('posted','reversed')),
     posted_by uuid REFERENCES users(id) ON DELETE SET NULL,
     posted_at timestamptz NOT NULL DEFAULT now(),
     reversal_of uuid REFERENCES journal_entries(id) ON DELETE RESTRICT,
@@ -85,6 +84,9 @@ CREATE TRIGGER journal_lines_immutable
 BEFORE UPDATE OR DELETE ON journal_lines
 FOR EACH ROW EXECUTE FUNCTION gerp_reject_posted_journal_mutation();
 
+-- Reversal state is represented by a separate reversing journal linked through
+-- reversal_of; the original posted journal is never mutated.
+--
 -- Balance validation is performed by the Go finance domain before insertion and
 -- should be repeated by the posting transaction before COMMIT. Deferring a
 -- statement-level database assertion is intentionally left to the repository

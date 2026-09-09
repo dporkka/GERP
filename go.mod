@@ -5,8 +5,10 @@ go 1.25.4
 require (
 	cloud.google.com/go/spanner v1.88.0
 	github.com/99designs/gqlgen v0.17.89
+	github.com/a-h/templ v0.3.1020
 	github.com/google/uuid v1.6.0
 	github.com/invopop/gobl v0.504.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

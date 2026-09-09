@@ -16,6 +16,8 @@ jobs:
   go:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GERP_TEST_DATABASE_URL: postgresql://gerp:gerp@127.0.0.1:5432/gerp_test?sslmode=disable
     services:
       postgres:
         image: postgres:17-alpine

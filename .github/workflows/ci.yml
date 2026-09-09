@@ -16,6 +16,20 @@ jobs:
   go:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: gerp
+          POSTGRES_PASSWORD: gerp
+          POSTGRES_DB: gerp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gerp -d gerp_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +66,21 @@ jobs:
             echo "go.mod/go.sum are not tidy; run 'go mod tidy' and commit the result."
             exit 1
           fi
+      - name: Apply PostgreSQL migrations
+        env:
+          PGPASSWORD: gerp
+        shell: bash
+        run: |
+          for migration in migrations/postgres/*.sql; do
+            echo "Applying $migration"
+            psql \
+              --host=127.0.0.1 \
+              --port=5432 \
+              --username=gerp \
+              --dbname=gerp_test \
+              --set=ON_ERROR_STOP=1 \
+              --file="$migration"
+          done
       - name: Vet
         run: go vet ./...
       - name: Test

@@ -44,6 +44,14 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+      - name: Verify module metadata
+        shell: bash
+        run: |
+          go mod tidy
+          if ! git diff --exit-code -- go.mod go.sum; then
+            echo "go.mod/go.sum are not tidy; run 'go mod tidy' and commit the result."
+            exit 1
+          fi
       - name: Vet
         run: go vet ./...
       - name: Test

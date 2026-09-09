@@ -81,6 +81,7 @@ func TestIssuanceRequiresValidatedImmutableGOBLSnapshot(t *testing.T) {
 		t.Fatalf("failed issuance committed state: status=%s snapshots=%d", status, snapshots)
 	}
 
+	price := num.MakeAmount(10000, 2)
 	document := &bill.Invoice{
 		Code:      "INV-SNAP",
 		IssueDate: cal.MakeDate(2026, time.September, 9),
@@ -92,7 +93,7 @@ func TestIssuanceRequiresValidatedImmutableGOBLSnapshot(t *testing.T) {
 				Quantity: num.MakeAmount(1, 0),
 				Item: &org.Item{
 					Name:  "ERP implementation",
-					Price: num.MakeAmount(10000, 2),
+					Price: &price,
 				},
 			},
 		},

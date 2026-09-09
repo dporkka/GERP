@@ -9,11 +9,13 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
     normal_balance text NOT NULL CHECK (normal_balance IN ('debit','credit')),
     currency char(3),
     active boolean NOT NULL DEFAULT true,
-    parent_id uuid REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+    parent_id uuid,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, code),
-    UNIQUE (tenant_id, id)
+    UNIQUE (tenant_id, id),
+    FOREIGN KEY (tenant_id, parent_id)
+        REFERENCES gl_accounts(tenant_id, id) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS fiscal_periods (
@@ -38,13 +40,20 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     description text NOT NULL DEFAULT '',
     source_type text,
     source_id text,
+    status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted')),
     posted_by uuid REFERENCES users(id) ON DELETE SET NULL,
-    posted_at timestamptz NOT NULL DEFAULT now(),
-    reversal_of uuid REFERENCES journal_entries(id) ON DELETE RESTRICT,
+    posted_at timestamptz,
+    reversal_of uuid,
     created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, number),
-    UNIQUE (tenant_id, id)
+    UNIQUE (tenant_id, id),
+    FOREIGN KEY (tenant_id, reversal_of)
+        REFERENCES journal_entries(tenant_id, id) ON DELETE RESTRICT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_one_reversal_idx
+    ON journal_entries(tenant_id, reversal_of)
+    WHERE reversal_of IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS journal_lines (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,30 +76,97 @@ CREATE INDEX IF NOT EXISTS journal_lines_entry_idx
 CREATE INDEX IF NOT EXISTS journal_lines_account_idx
     ON journal_lines(tenant_id, account_id, journal_entry_id);
 
-CREATE OR REPLACE FUNCTION gerp_reject_posted_journal_mutation()
+CREATE OR REPLACE FUNCTION gerp_guard_journal_entry_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    line_count bigint;
+    debit_total numeric;
+    credit_total numeric;
 BEGIN
-    RAISE EXCEPTION 'posted journals are immutable; create a reversal instead';
+    IF OLD.status = 'posted' THEN
+        RAISE EXCEPTION 'posted journals are immutable; create a reversal instead';
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+
+    IF NEW.status = 'posted' THEN
+        SELECT count(*), COALESCE(sum(debit_minor), 0), COALESCE(sum(credit_minor), 0)
+          INTO line_count, debit_total, credit_total
+          FROM journal_lines
+         WHERE tenant_id = NEW.tenant_id
+           AND journal_entry_id = NEW.id;
+
+        IF line_count < 2 THEN
+            RAISE EXCEPTION 'journal % requires at least two lines before posting', NEW.id;
+        END IF;
+        IF debit_total <> credit_total THEN
+            RAISE EXCEPTION 'journal % is unbalanced: debits %, credits %', NEW.id, debit_total, credit_total;
+        END IF;
+
+        NEW.posted_at := COALESCE(NEW.posted_at, now());
+    ELSE
+        NEW.posted_at := NULL;
+        NEW.posted_by := NULL;
+    END IF;
+
+    NEW.updated_at := now();
+    RETURN NEW;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS journal_entries_immutable ON journal_entries;
-CREATE TRIGGER journal_entries_immutable
+DROP TRIGGER IF EXISTS journal_entries_guard ON journal_entries;
+CREATE TRIGGER journal_entries_guard
 BEFORE UPDATE OR DELETE ON journal_entries
-FOR EACH ROW EXECUTE FUNCTION gerp_reject_posted_journal_mutation();
+FOR EACH ROW EXECUTE FUNCTION gerp_guard_journal_entry_mutation();
 
-DROP TRIGGER IF EXISTS journal_lines_immutable ON journal_lines;
-CREATE TRIGGER journal_lines_immutable
-BEFORE UPDATE OR DELETE ON journal_lines
-FOR EACH ROW EXECUTE FUNCTION gerp_reject_posted_journal_mutation();
+CREATE OR REPLACE FUNCTION gerp_guard_journal_line_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    target_tenant uuid;
+    target_entry uuid;
+    entry_status text;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        target_tenant := OLD.tenant_id;
+        target_entry := OLD.journal_entry_id;
+    ELSE
+        target_tenant := NEW.tenant_id;
+        target_entry := NEW.journal_entry_id;
+    END IF;
 
--- Reversal state is represented by a separate reversing journal linked through
--- reversal_of; the original posted journal is never mutated.
---
--- Balance validation is performed by the Go finance domain before insertion and
--- should be repeated by the posting transaction before COMMIT. Deferring a
--- statement-level database assertion is intentionally left to the repository
--- implementation because multi-row balance checks cannot be expressed as a
--- simple row CHECK constraint.
+    IF TG_OP = 'UPDATE' AND
+       (NEW.tenant_id <> OLD.tenant_id OR NEW.journal_entry_id <> OLD.journal_entry_id) THEN
+        RAISE EXCEPTION 'journal lines cannot be moved between journals';
+    END IF;
+
+    SELECT status
+      INTO entry_status
+      FROM journal_entries
+     WHERE tenant_id = target_tenant
+       AND id = target_entry;
+
+    IF entry_status IS DISTINCT FROM 'draft' THEN
+        RAISE EXCEPTION 'journal lines are mutable only while the journal is draft';
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS journal_lines_guard ON journal_lines;
+CREATE TRIGGER journal_lines_guard
+BEFORE INSERT OR UPDATE OR DELETE ON journal_lines
+FOR EACH ROW EXECUTE FUNCTION gerp_guard_journal_line_mutation();
+
+-- Posting is the accounting boundary: a draft may be edited freely, but the
+-- draft -> posted transition is rejected by PostgreSQL unless it has at least
+-- two lines and total debits equal total credits. Once posted, neither the
+-- journal header nor its lines may be changed. Corrections are new reversing
+-- journals linked through reversal_of.
 
 COMMIT;

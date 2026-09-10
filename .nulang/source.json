@@ -17,6 +17,7 @@
       "max_agent_concurrency": 75,
       "isolation": "firecracker",
       "validation": {
+        "profile": "go-ci-v1",
         "required": ["fmt", "vet", "unit", "integration"]
       },
       "integration": "change_dag",

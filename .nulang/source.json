@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "project": "gerp",
+  "source": {
+    "repository": {
+      "provider": "github",
+      "namespace": "dporkka",
+      "name": "GERP",
+      "external_id": "1359092369",
+      "default_branch": "main",
+      "transport": "https"
+    },
+    "development": {
+      "enabled": true,
+      "source_engine": "change_graph",
+      "workspace_engine": "jujutsu",
+      "max_agent_concurrency": 75,
+      "isolation": "firecracker",
+      "validation": {
+        "profile": "go-ci-v1",
+        "required": ["fmt", "vet", "unit", "integration"]
+      },
+      "integration": "change_dag",
+      "auto_rebase": true,
+      "auto_merge": false,
+      "export": "pull_request"
+    }
+  }
+}
